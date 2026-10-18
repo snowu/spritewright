@@ -1353,6 +1353,11 @@
 .pf .pf-cpop .pf-cur input[type=color]{width:56px;height:40px}.pf .pf-cpop .pf-cur input[type=text]{flex:1;min-width:0}
 .pf .pf-prim.open{outline:2px solid var(--pf-accent);outline-offset:2px}
 @media (pointer:coarse){.pf-cpop-tip{display:none}}
+/* Quick palette at the cursor (Tab): the project palette and the image's colours where the mouse is, so colours are picked without travelling to the side panel. */
+.pf-qpal{position:fixed;z-index:50;max-width:min(320px,calc(100vw - 16px));display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--pf-panel);border:1px solid var(--pf-accent);box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.pf-qpal .pf-sub{margin-top:0}.pf-qpal .pf-sub:first-child{margin-top:0}
+.pf-qpal .pf-sw{max-height:132px;overflow:auto}
+.pf-qpal .pf-note{font-size:11px}
 .pf .pf-prim,.pf .pf-sec{position:absolute;width:26px;height:26px;min-height:0;padding:0;border:2px solid var(--pf-ink);background:var(--pf-c,#000)}
 .pf .pf-prim{left:0;top:0;z-index:1}.pf .pf-sec{right:0;bottom:0;border-color:var(--pf-faint)}
 .pf .pf-prim.clear,.pf .pf-sec.clear{background:repeating-conic-gradient(#3a2d55 0 25%,#1c1530 0 50%) 0 0/8px 8px}
@@ -1560,9 +1565,11 @@
   ];
   const icon = (name) => `<svg class="pf-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
   // [id, name, key, rail icon or the rail tool it belongs to]
-  const TOOLS = [['pen', 'Pencil', 'B'], ['erase', 'Eraser', 'E'], ['fill', 'Fill', 'G'], ['pick', 'Colour picker', 'I'], ['line', 'Line', 'L'], ['rect', 'Rectangle', 'R'], ['rectf', 'Filled rectangle', 'F', 'rect'], ['ellipse', 'Ellipse', 'O'], ['ellipsef', 'Filled ellipse', 'U', 'ellipse'], ['select', 'Select and move', 'S'], ['lasso', 'Lasso select', 'Q', 'select'], ['wand', 'Magic wand: select by colour', 'W', 'select'], ['shade', 'Shade: lighter, right click darker', 'D'], ['gradient', 'Dither gradient: drag from the primary to the secondary colour', 'J']];
+  // [id, name, key, rail icon or the rail tool it belongs to]. The most-used drawing keys sit on the left hand (A Z X
+  // together: pick, pencil/eraser, swap) so the right hand stays on the mouse or stylus. I still picks, for muscle memory.
+  const TOOLS = [['pen', 'Pencil', 'B'], ['erase', 'Eraser', 'E'], ['fill', 'Fill', 'G'], ['pick', 'Colour picker', 'A'], ['line', 'Line', 'L'], ['rect', 'Rectangle', 'R'], ['rectf', 'Filled rectangle', 'F', 'rect'], ['ellipse', 'Ellipse', 'O'], ['ellipsef', 'Filled ellipse', 'U', 'ellipse'], ['select', 'Select and move', 'S'], ['lasso', 'Lasso select', 'Q', 'select'], ['wand', 'Magic wand: select by colour', 'W', 'select'], ['shade', 'Shade: lighter, right click darker', 'D'], ['gradient', 'Dither gradient: drag from the primary to the secondary colour', 'J']];
   const railOf = (t) => { const x = TOOLS.find((k) => k[0] === t); return (x && x[3]) || t; };
-  const KEYS = [['B E G I', 'pencil · eraser · fill · colour picker'], ['L R F O U', 'line · rectangle · filled rect · ellipse · filled ellipse'], ['S Q W', 'select a rectangle · lasso · magic wand (Shift adds, Alt subtracts; drag inside to move)'], ['D J', 'shade · dither gradient'], ['[ ]', 'brush size (pencil, eraser, shade, and the line / outline shapes)'], ['Z', 'switch between pencil and eraser'], ['X', 'swap primary / secondary colour'], ['Alt+click', 'pick a colour with any tool'], ['right click', 'paint with the secondary colour (clear = erase)'], ['Shift', 'square / circle / 45° lines; with the pencil, click to draw a line from the last point'],
+  const KEYS = [['B E G A', 'pencil · eraser · fill · colour picker (I also picks)'], ['L R F O U', 'line · rectangle · filled rect · ellipse · filled ellipse'], ['S Q W', 'select a rectangle · lasso · magic wand (Shift adds, Alt subtracts; drag inside to move)'], ['D J', 'shade · dither gradient'], ['Tab', 'palette at the cursor: pick without leaving the canvas (click: primary · Shift+click / right click: secondary · Tab / Esc closes)'], ['[ ]', 'brush size (pencil, eraser, shade, and the line / outline shapes)'], ['Z', 'switch between pencil and eraser'], ['X', 'swap primary / secondary colour'], ['Alt+click', 'pick a colour with any tool'], ['right click', 'paint with the secondary colour (clear = erase)'], ['Shift', 'square / circle / 45° lines; with the pencil, click to draw a line from the last point'],
     ['M', 'mirror left-right'], ['V', 'context: the sprite at game scale next to others from its folder'], ['H', 'show / hide the reference image'], ['P', 'pixel check: stray pixels, doubled corners, near-duplicate colours'], ['Y', 'vision check: values (greyscale), protanopia, deuteranopia, tritanopia'], ['C · hold \\ · Shift+\\', 'changes against the branch (dims the rest) · show the branch version while held · the last save while held'], ['T · N · # · K', 'tile preview · onion skin · grid · background (dark / light checker, black, white, custom, the project\'s)'], ['Ctrl+C X V', 'copy · cut · paste (images from other apps too)'], ['Ctrl+A · Del · Esc · Enter', 'select all · delete · drop · apply selection'], ['arrows', 'nudge the selection (Shift: 8 px)'], ['Ctrl+Z · Ctrl+Y', 'undo · redo'], ['Ctrl+S', 'save (to the project folder when it can be written; edits are kept in this browser either way)'], ['Ctrl+Shift+S', 'download this sprite as a PNG'], ['Ctrl+Alt+C', 'canvas size'], ['wheel · + − 0', 'zoom · fit'], ['space+drag · middle mouse', 'pan'], ['?', 'this list']];
   /* What shows behind transparent pixels. No single background suits all art (dark details vanish on the dark checker, pale
      ones on the light one), so like Aseprite, Pixelorama and Piskel the editor offers a few and remembers the choice.
@@ -1808,7 +1815,8 @@
       <div class="pf-cpop" role="dialog" aria-label="Colour" hidden><div class="pf-cur"><input type="color" class="pf-cpick" aria-label="Current colour"><input type="text" class="pf-chex" maxlength="9" aria-label="Hex colour"></div>
           <div class="pf-row"><button class="pf-ramp-btn" title="A 5-colour ramp around this colour: cool, darker shadows and warm highlights">Hue ramp</button><button class="pf-recolor" title="Change this colour everywhere in the image">Recolour…</button><input type="color" class="pf-recolor-in" aria-hidden="true" tabindex="-1" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none"></div>
           <div class="pf-ramp" hidden><div class="pf-sw pf-ramp-colors"></div><button class="pf-ramp-add" title="Add these colours to the palette">+ add to palette</button></div>
-        <div class="pf-note pf-cpop-tip">Right click paints the secondary colour · X swaps them · Z pencil / eraser · Alt+click picks from the canvas</div></div>
+        <div class="pf-note pf-cpop-tip">Right click paints the secondary colour · X swaps them · Z pencil / eraser · A picks · Tab palette at cursor · Alt+click picks from the canvas</div></div>
+      <div class="pf-qpal" role="dialog" aria-label="Quick palette" hidden><div class="pf-sub">Palette</div><div class="pf-sw pf-qpal-colors"></div><div class="pf-sub">In this image</div><div class="pf-sw pf-qpal-img"></div><div class="pf-note">click: paint colour · Shift+click / right click: secondary · Tab / Esc closes</div></div>
       <div class="pf-fs-scrim"></div><button class="pf-fs-h pf-fs-hl" aria-label="Sprites" aria-expanded="false">›</button><button class="pf-fs-h pf-fs-hr" aria-label="Colours, options and actions" aria-expanded="false">‹</button>
       <dialog class="pf-dlg-pr"><form method="dialog" class="pf-form"><h4>Propose changes as a pull request</h4><div class="pf-chg-list"></div>
         <label>Repository <input type="text" class="pf-pr-repo" list="pf-repos" placeholder="owner/name"></label>
@@ -3643,6 +3651,33 @@
     document.addEventListener('pointerdown', (e) => { if (!$('.pf-cpop').hidden && !e.target.closest('.pf-cpop') && !e.target.closest('.pf-prim')) colourPop(false); });
     addEventListener('resize', () => { if (!$('.pf-cpop').hidden) placeCpop(); });
     $('.pf-sec').onclick = () => $('.pf-swap').click();
+    /* Quick palette at the cursor (Tab): the project palette plus "in this image", opened where the mouse is so colours
+       are picked without travelling to the side panel. Click picks the primary colour, Shift+click or right click the
+       secondary one; Tab or Esc closes it. */
+    const lastMouse = { clientX: null, clientY: null };
+    const trackMouse = (e) => { lastMouse.clientX = e.clientX; lastMouse.clientY = e.clientY; };
+    document.addEventListener('pointermove', trackMouse, { passive: true });
+    let qpalAt = null;
+    const qpalOpen = () => !$('.pf-qpal').hidden;
+    function renderQpal() {
+      const d = doc();
+      $('.pf-qpal-colors').innerHTML = S.palette.length ? S.palette.map((c) => `<button data-c="${c}" title="${toHex(c)}" style="background:${toHex(c)}" class="${c === S.color ? 'on' : ''} ${c === S.color2 ? 'sec' : ''}"></button>`).join('') : '<span class="pf-note">no palette yet</span>';
+      if (!d) { $('.pf-qpal-img').innerHTML = '<span class="pf-note">no image open</span>'; return; }
+      const cols = colorsOf(d.flat()).filter(([c]) => !isClear(c)).slice(0, 64);
+      $('.pf-qpal-img').innerHTML = cols.map(([c, n]) => `<button data-c="${c}" title="${toHex(c)} · ${n}px" style="background:${toHex(c)}" class="${c === S.color ? 'on' : ''} ${c === S.color2 ? 'sec' : ''}"></button>`).join('') || '<span class="pf-note">transparent</span>';
+    }
+    function qpalPlace(x, y) {
+      const pop = $('.pf-qpal'), pw = pop.offsetWidth || 260, ph = pop.offsetHeight || 180, vw = innerWidth, vh = innerHeight;
+      pop.style.left = Math.round(Math.max(8, Math.min(x + 14, vw - pw - 8))) + 'px';
+      pop.style.top = Math.round(Math.max(8, Math.min(y + 14, vh - ph - 8))) + 'px';
+    }
+    function qpalShow(x, y) { qpalAt = { x, y }; renderQpal(); $('.pf-qpal').hidden = false; qpalPlace(x, y); }
+    function qpalHide() { $('.pf-qpal').hidden = true; qpalAt = null; }
+    function qpalToggle() { if (qpalOpen()) qpalHide(); else { const p = lastMouse.clientX != null ? lastMouse : { clientX: innerWidth / 2, clientY: innerHeight / 2 }; qpalShow(p.clientX, p.clientY); } }
+    $('.pf-qpal').addEventListener('click', (e) => { const b = e.target.closest('button[data-c]'); if (!b) return; e.shiftKey ? setColor2(+b.dataset.c) : setColor(+b.dataset.c); renderQpal(); qpalHide(); });
+    $('.pf-qpal').addEventListener('contextmenu', (e) => { const b = e.target.closest('button[data-c]'); if (!b) return; e.preventDefault(); setColor2(+b.dataset.c); renderQpal(); qpalHide(); });
+    const qpalOutside = (e) => { if (qpalOpen() && !e.target.closest('.pf-qpal')) qpalHide(); };
+    document.addEventListener('pointerdown', qpalOutside, true);
     $('.pf-ramp-btn').onclick = () => { if (isClear(S.color)) return note('Pick a colour first.'); const r = hueRamp(S.color, 5); $('.pf-ramp').hidden = false; $('.pf-ramp-colors').innerHTML = r.map((c) => `<button data-c="${c}" title="${toHex(c)}" style="background:${toHex(c)}"></button>`).join(''); S.ramp = r; renderColors(); };
     $('.pf-ramp-add').onclick = () => { const add = (S.ramp || []).filter((c) => !S.palette.includes(c)); S.palette = S.palette.concat(add); renderPalette(); renderColors(); note('added ' + add.length + ' colours to the palette'); };
     $('.pf-pal-add').onclick = () => { if (isClear(S.color) || S.palette.includes(S.color)) return; S.palette = S.palette.concat([S.color]); renderPalette(); renderColors(); };
@@ -4078,6 +4113,7 @@
       else if (mod && k === 'c') { if (copySel(false)) e.preventDefault(); } else if (mod && k === 'x') { if (copySel(true)) e.preventDefault(); }
       else if (mod && k === 'a') { e.preventDefault(); selectAll(); }
       else if (mod && k === 'v') { pasteSoon = setTimeout(() => { if (S.clip) pastePx(S.clip.px, S.clip.w, S.clip.h); }, 60); } // the paste event below wins when the clipboard holds an image from another app
+      else if (k === 'escape' && qpalOpen()) { e.preventDefault(); qpalHide(); }
       else if (k === 'escape' && !$('.pf-cpop').hidden) { e.preventDefault(); colourPop(false); $('.pf-prim').focus(); }
       else if (k === 'escape' && root.querySelector('.pf-bgmenu')) { e.preventDefault(); closeBgMenu(); closeDlMenu(); }
       else if (k === 'escape' && (S.sel || S.float)) { e.preventDefault(); dropSelection(); }
@@ -4085,12 +4121,16 @@
       else if ((k === 'delete' || k === 'backspace') && (S.sel || S.float)) { e.preventDefault(); deleteSel(); }
       else if (k.startsWith('arrow') && S.sel && !mod) { e.preventDefault(); const n = e.shiftKey ? 8 : 1; nudge(k === 'arrowleft' ? -n : k === 'arrowright' ? n : 0, k === 'arrowup' ? -n : k === 'arrowdown' ? n : 0); }
       else if (!mod && !e.altKey) {
+        if (k === 'tab') { e.preventDefault(); qpalToggle(); }
+        else {
         const t = TOOLS.find((x) => x[2].toLowerCase() === k); if (t) setTool(t[0]);
+        else if (k === 'i') setTool('pick'); // the old picker key, kept for muscle memory: A is now the home-row picker next to Z/X
         else if (k === 'm') $('.pf-mx').click(); else if (k === '+' || k === '=') $('.pf-zin').click(); else if (k === '-') $('.pf-zout').click(); else if (k === '0') $('.pf-fit').click(); else if (k === '#') $('.pf-grid').click();
         else if (k === 'x') $('.pf-swap').click(); else if (k === 'z') setTool(S.tool === 'erase' ? 'pen' : 'erase'); else if (k === '[') setSize(S.size - 1); else if (k === ']') setSize(S.size + 1);
         else if (k === 'k') cycleBg(); else if (k === 'y') $('.pf-vision').click(); else if (k === 'p') $('.pf-lint').click(); else if (k === 'h') toggleRef(); else if (k === 'c') $('.pf-changes').click(); else if (k === 'v') $('.pf-context').click(); else if (e.code === 'Backslash' || e.key === '\\' || e.key === '|') { e.preventDefault(); peek(e.shiftKey ? 'saved' : 'base'); } else if (k === ',') stepMember(-1); else if (k === '.') stepMember(1);
         else if (k === 't') $('.pf-tile').click(); else if (k === 'n') $('.pf-onion').click(); else if (e.key === '?') $('.pf-help').click();
         else if (k === ' ') { space = true; e.preventDefault(); }
+        }
       }
     }
     const keyup = (e) => { if (e.key === ' ') space = false; if (e.code === 'Backslash' || e.key === '\\' || e.key === '|') peek(false); };
@@ -4111,7 +4151,7 @@
 
     const ctrl = {
       get docs() { return S.docs; }, get current() { return doc(); }, open: openSprite, save, setColor, setColor2, setTool, undo, redo, selectAll, state: S,
-      dispose() { document.removeEventListener('pointerdown', tgOutside); window.removeEventListener('focus', reposOnReturn); document.removeEventListener('keydown', keydown); document.removeEventListener('keyup', keyup); document.removeEventListener('paste', onPaste); document.removeEventListener('pointerdown', bgOutside); document.removeEventListener('pointerdown', brOutside); window.removeEventListener('pointerup', peekOff); window.removeEventListener('beforeunload', leaveGuard); document.removeEventListener('visibilitychange', hideFlush); document.removeEventListener('pointerdown', dlOutside); if (ro) ro.disconnect(); clearInterval(S.anim.timer); host.innerHTML = ''; delete host.__pf; },
+      dispose() { document.removeEventListener('pointerdown', tgOutside); window.removeEventListener('focus', reposOnReturn); document.removeEventListener('keydown', keydown); document.removeEventListener('keyup', keyup); document.removeEventListener('paste', onPaste); document.removeEventListener('pointerdown', bgOutside); document.removeEventListener('pointerdown', brOutside); document.removeEventListener('pointerdown', qpalOutside, true); document.removeEventListener('pointermove', trackMouse); window.removeEventListener('pointerup', peekOff); window.removeEventListener('beforeunload', leaveGuard); document.removeEventListener('visibilitychange', hideFlush); document.removeEventListener('pointerdown', dlOutside); if (ro) ro.disconnect(); clearInterval(S.anim.timer); host.innerHTML = ''; delete host.__pf; },
     };
     host.__pf = ctrl;
     return ctrl;
