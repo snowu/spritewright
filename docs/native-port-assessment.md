@@ -2,7 +2,9 @@
 
 Assessed 18 October 2026 against Spritewright `4ba76c7` and zig-game-lab `57cea52`.
 
-**Recommendation: use the same native/web architecture as zig-game-lab, with a shared Zig editor core and a proper UI toolkit. Budget 2–4 engineering weeks for a useful desktop prototype and 10–16 engineering weeks for current-feature parity on Linux, Windows and the web.** Additional platforms need their own integration and testing. These are planning estimates for one experienced engineer working full time, not measured implementation times or delivery commitments.
+**Recommendation: use the same native/web architecture as zig-game-lab, with a shared Zig editor core and a proper UI toolkit. For agent-assisted implementation, target a first working slice within a day, a useful desktop alpha in 2–5 active development days, and a feature-complete candidate in 1–3 active development weeks.** These are provisional execution targets, not measured throughput or release commitments. Verified parity and additional platform readiness depend on checks described below.
+
+The initial report used conventional single-engineer labor estimates. Those were not calibrated to this project's agent-assisted workflow and should not have been presented as its delivery timeline. The revised targets account for the existing implementation as an executable specification, reusable build infrastructure and automated checks. They remain hypotheses until a representative slice measures actual integration speed.
 
 The game provides a working build, rendering and distribution reference. It does not provide the editor's UI, document model or desktop integrations. Cloudflare deployment is a small part of the project; rebuilding the browser-provided application behavior is the substantial part.
 
@@ -71,30 +73,42 @@ An incremental route can retain the existing browser UI while moving algorithms 
 5. **Changing the web origin.** The current site is deployed on GitHub Pages; its auth Worker allows `https://snowu.github.io`. A Cloudflare site needs the new origin allowed and install/service-worker paths checked. Browser drafts and sessions do not automatically move across origins. Provide an export/import or migration path before replacing the existing URL.
 6. **Embedding and CLI compatibility.** Spritewright is also an npm library and local CLI, with `mount()`, controller methods and exported helpers. A Wasm build introduces loading and asynchronous initialization that the current script does not require. Keep the existing package during migration or explicitly budget a compatible wrapper. Replacing the Node CLI and preserving every synchronous JavaScript helper API are separate deliverables from the desktop application.
 
-**Effort estimate**
+**Agent-assisted execution targets**
 
-Assumptions: one experienced engineer familiar with these projects; reuse of an existing UI toolkit; Linux/Windows first; access to real target machines; current features rather than new blend modes or document formats. Estimates include integration and testing. Toolkit suitability and native/web input behavior are the largest unresolved variables.
+Assumptions: agents implement and run checks with a human reviewing product behavior; the existing editor specifies the behavior; the game's build setup and an existing UI toolkit are reused; Linux/Windows/web come first. An active development day means work can continue with tools and feedback available, not eight hours of a human manually writing code. These ranges are elapsed targets under those conditions, not a conversion from person-weeks using an assumed agent speed multiplier.
 
-| Milestone | Estimated effort | Completion criterion |
+| Milestone | Provisional elapsed target | Completion criterion |
 | --- | --- | --- |
-| Feasibility trial | 3–5 engineering days | Same small editor core builds native and web; open PNG, draw, undo, zoom and save; usable text field and resizable canvas |
-| Useful desktop prototype | 2–4 engineering weeks total, including trial | Linux/Windows local-file editing, pencil/eraser/fill, palette, zoom/pan, undo/redo and lossless PNG save; basic recovery |
-| Current editor feature parity on Linux/Windows/web | 10–16 engineering weeks total | Layers and linked frames, selections, animation/export tools, project modes, GitHub workflows, recovery and interaction QA |
-| macOS support | Approximately 1–3 additional engineering weeks | Metal-capable renderer, builds, app bundle/signing/notarization setup and Mac input/filesystem testing |
-| Android support | Approximately 3–6 additional engineering weeks after shared app is stable | SDK/NDK packaging, document access, lifecycle/recovery, keyboard/stylus integration and device testing |
-| iOS/iPadOS support | Approximately 4–8 additional engineering weeks after shared app is stable | Apple build/signing, document access, lifecycle/recovery, touch/Pencil integration and device testing |
+| First working slice | One focused session, roughly 2–8 hours | Shared core builds native and web; open a supported PNG, draw, undo, zoom and save; usable text field and resizable canvas |
+| Useful desktop alpha | 2–5 active development days total | Linux/Windows local-file editing, pencil/eraser/fill, palette, zoom/pan, undo/redo and lossless PNG save; basic recovery; targeted checks pass |
+| Feature-complete candidate on Linux/Windows/web | 1–3 active development weeks total; low confidence before the slice | Layers and linked frames, selections, animation/export tools, project modes, GitHub workflows and recovery implemented; automated regression checks pass |
+| Verified replacement for the current editor | Re-estimate from the slice and candidate defect list | Actual workflow review, native input/device checks, recovery and migration checks pass; no known blocking regressions |
 
-The first three rows are cumulative alternatives, not additive phases. Platform additions can share some work; they are not promises that every device or store-distribution requirement fits the range. Account enrollment or external review waiting time is excluded. Mobile estimates assume adapting the existing touch workflow; a substantial mobile redesign adds scope.
+The first three rows are cumulative, not additive. A feature-complete candidate is not automatically a verified replacement. The distinction matters because agents can translate functions and construct UI quickly, while defects in focus, clipboard formats, pen input or cross-document history may require repeated runs on the affected host. No such defect has yet been measured here; it would also be unjustified to assume weeks of debugging in advance.
 
-The 10–16 week range broadly allocates 2–3 weeks to core/codecs, 3–5 to editor UI and rendering, 2–3 to native project/GitHub/persistence integrations, 1–2 to browser integration and distribution, and 2–3 to migration and cross-platform regression work. This assumes retaining the current JavaScript package/CLI where needed during migration. A complete replacement of those public interfaces needs its own acceptance criteria and estimate.
+The repository supports a shorter implementation target: it already supplies the algorithms, document semantics, test expectations, visual references, native/web build pattern and hosting recipe. Most product decisions are settled. Implement in small batches with comparison tests and integration checks, instead of scheduling discovery, algorithm development and infrastructure work as though all three start from zero. Reuse pixel fixtures across native and Wasm targets. If multiple agents are used, independent core/codecs, UI and host-adapter work can overlap once their interfaces are agreed; their individual work times should not be added together as elapsed time.
 
-Moving the existing web app to Cloudflare alone would be roughly 1–3 engineering days, including deployment configuration, auth-origin changes and a basic migration plan. It would not create a native application. The new editor's web host, file access and persistence work is already included in the larger estimate.
+The schedule still assumes retaining the current JavaScript package/CLI where needed during migration. Replacing those public interfaces completely requires explicit acceptance criteria. Building our own widget toolkit, redesigning the product or adding new formats would change the scope.
+
+For additional platforms, use a first-build target and a validation gate rather than assigning several weeks before trying:
+
+| Platform | Initial agent-assisted target after the shared app works | Work that gates a supported release |
+| --- | --- | --- |
+| macOS | First runnable build in roughly 0.5–2 active days, with a Mac and toolchain available | Metal/custom shader compatibility, app packaging and signing, filesystem/clipboard/DPI/input checks |
+| Android | First runnable build in roughly 1–3 active days, with SDK/NDK and a device available | Document providers, suspend/resume and recovery, soft keyboard, touch/pen handling, GPU/device coverage |
+| iOS/iPadOS | First runnable build in roughly 1–3 active days, with Apple tooling, signing and a device available | Document access, lifecycle/recovery, keyboard/Pencil handling, packaging and distribution |
+
+These platform targets have low confidence: this assessment did not compile the chosen UI stack on those targets. If an upstream backend or dependency does not support a target, estimate that missing work from a build attempt. Account setup, hardware availability, human feedback and store/notarization processing are external elapsed time and are not included. A successful cross-compile alone does not satisfy the release gate.
+
+Adapting the existing web deployment to Cloudflare should be an hours-scale configuration task using the game's recipe, with credentials available. Auth-origin changes and install/service-worker checks belong in that task. Preserving existing browser drafts across origins is a separate migration requirement; moving hosting alone neither migrates those drafts nor produces a native application.
 
 The game currently packages only x86-64 Linux and Windows. It supplies only SPIR-V shaders. SDL_GPU supports Metal and Direct3D as well, but each backend needs suitable shader formats; compiling for macOS does not by itself convert those shaders. DVUI may supply the UI side, while any custom canvas shader still needs equivalent coverage. See [SDL_GPU's backend and shader requirements](https://wiki.libsdl.org/SDL3/CategoryGPU). ARM64 builds and device testing are also separate from the existing x86-64 packaging recipe.
 
 **Recommended first implementation milestone**
 
-Spend the first 3–5 days on a small editor inside this repository with a pinned Zig/UI dependency set. Prove Linux, Windows and browser builds, resizable UI, editable pixel textures, text input and the complete open → edit → undo → save → reopen path. Include a partially transparent PNG and a layered fixture. The trial can use a narrow format subset, provided that limitation is explicit; it is not the production codec acceptance test.
+Use the first focused implementation session for a small editor inside this repository with a pinned Zig/UI dependency set. Target Linux, Windows and browser builds, resizable UI, editable pixel textures, text input and the complete open → edit → undo → save → reopen path. Start with a partially transparent PNG, then add a layered fixture to exercise document ownership and metadata. The trial can use a narrow format subset, provided that limitation is explicit; it is not the production codec acceptance test.
+
+Record elapsed time to the first builds, passing pixel comparison and working save/reopen path. At the end of the session, report which checkpoints passed and any concrete blockers, then update the remaining estimate. If toolkit integration consumes the session, that is evidence to change the toolkit choice or schedule; do not keep the optimistic range unchanged. If the slice works faster, shorten the remaining target accordingly.
 
 Compare raw pixels and layer metadata against fixtures produced by the existing JavaScript implementation. Exercise a large sheet and high-DPI display, and check that idle rendering does not unnecessarily run at game-loop speed. Check a real pen device before treating input support as solved. Re-estimate after this trial, particularly if the toolkit requires backend changes or the web host cannot preserve editing behavior.
 
