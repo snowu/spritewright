@@ -43,7 +43,7 @@ test('mcp: initialize, tools/list, notifications and unknown methods', async () 
   assert.equal(init.result.protocolVersion, '2025-06-18'); assert.deepEqual(init.result.capabilities, { tools: {} }); assert.equal(init.result.serverInfo.name, 'spritewright');
   assert.equal(await mcp.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), null, 'notifications get no reply');
   const list = await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['list_sprites', 'read_sprite', 'write_pixels', 'draw', 'transform', 'create_sprite', 'preview', 'lint', 'diff', 'undo', 'discard', 'commit']);
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['list_sprites', 'read_sprite', 'write_pixels', 'draw', 'transform', 'create_sprite', 'preview', 'lint', 'critique', 'diff', 'undo', 'discard', 'commit']);
   for (const t of list.result.tools) assert.equal(t.inputSchema.type, 'object');
   assert.equal((await mcp.handle({ jsonrpc: '2.0', id: 3, method: 'nope' })).error.code, -32601);
   assert.equal((await mcp.handle({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'nope' } })).error.code, -32602);
@@ -213,4 +213,28 @@ test('mcp: possible doubled corners are hints, not problems', async () => {
   fs.writeFileSync(path.join(root, 'stair.png'), fromRows(['k....', 'kk...', '.kk..', '..kk.', '...k.'], PAL).png);
   const r = (await m.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lint', arguments: { path: 'stair.png' } } })).result.content[0].text;
   assert.match(r, /no problems found/); assert.match(r, /Worth a look, possible doubled corners/); assert.match(r, /often intentional/);
+});
+
+test('mcp: critique scores what it can measure and says where', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-mcp-')); fs.mkdirSync(path.join(root, 'h'));
+  const box = ['kkkkkk....', 'kgggGk....', 'kgggGk....', 'kgGGGk....', 'kgggGk....', 'kkkkkk....'];
+  fs.writeFileSync(path.join(root, 'h/good.png'), fromRows(box, PAL).png);
+  const bad = box.map((r) => [...r]); bad[2][2] = 'r'; for (let y = 1; y <= 4; y++) bad[y][8] = 'G'; // an orphan colour and a loose 1px strand
+  fs.writeFileSync(path.join(root, 'h/bad.png'), fromRows(bad.map((r) => r.join('')), PAL).png);
+  const m = createMcp({ root }); let id = 0;
+  const crit = async (args) => { const r = (await m.handle({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name: 'critique', arguments: args } })).result; assert.ok(!r.isError, r.content[0].text); return r.content[0].text; };
+  const good = await crit({ path: 'h/good.png' });
+  assert.match(good, /Cleanliness: 10\/10/); assert.match(good, /every colour does real work/); assert.match(good, /100% of the silhouette edge is #1a1426/);
+  assert.match(good, /Loose 1px details: 10\/10\n {2}none/); assert.match(good, /Fits its neighbours: \d+(\.\d)?\/10\n {2}against 1 sprite in h\//);
+  assert.match(good, /No background colour configured/); assert.match(good, /not taste/);
+  const b = await crit({ path: 'h/bad.png' });
+  assert.match(b, /used for only 1-2 pixels: #c8434b \(1 px at \(2,2\)\)/);
+  assert.match(b, /4 light pixels with clear on both sides at \(8,1\) \(8,2\) \(8,3\) \(8,4\)/);
+  assert.match(b, /light edge pixels at \(8,1\)/, 'an unoutlined strand is a gap in the outline');
+  const onDark = await crit({ path: 'h/good.png', background: hex(PAL.k) });
+  assert.match(onDark, /Against background: 0\/10\n {2}on #1a1426: 100% of the silhouette edge is hard to tell from it/);
+  const cmp = await crit({ path: 'h/good.png', compare: 'h/bad.png' });
+  const score = (t) => +/Overall ([\d.]+)\/10/.exec(t)[1];
+  assert.match(cmp, /beside h\/bad\.png/); assert.match(cmp, /Overall [\d.]+\/10 \(h\/bad\.png: [\d.]+\/10\)/);
+  assert.ok(score(good) > score(b), 'the clean sprite scores higher');
 });

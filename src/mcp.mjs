@@ -388,6 +388,121 @@ export function createMcp({ root = '.' } = {}) {
     return (out.length ? `${d.rel}:\nProblems:\n` + out.join('\n') : `${d.rel}: no problems found.`) + (hints ? '\n\n' + hints : '');
   });
 
+  /* ---- critique: measurements that stand in for parts of an art review. They are signals, not taste: a sprite can score
+     well and still look wrong, so a critique always ends by pointing at preview. ---- */
+  const labCache = new Map();
+  function lab(c) { // sRGB to CIELAB (D65); lightness L runs 0 (black) to 100 (white)
+    c = rgb(c); if (labCache.has(c)) return labCache.get(c);
+    const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }, [r, g, b] = C.unpack(c).map(lin);
+    const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+    const X = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047), Y = f(0.2126 * r + 0.7152 * g + 0.0722 * b), Z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+    const out = [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)]; labCache.set(c, out); return out;
+  }
+  const hexRgb = (c) => C.toHex((rgb(c) | 0xff000000) >>> 0);
+  const dE = (a, b) => { const p = lab(a), q = lab(b); return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
+  const median = (xs) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length & 1 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+  function measure(px, w, h, { palette, bg }) {
+    const at = (i) => `(${i % w},${(i / w) | 0})`, solid = (x, y) => x >= 0 && y >= 0 && x < w && y < h && !isClear(px[y * w + x]);
+    const counts = new Map(), first = new Map();
+    px.forEach((c, i) => { if (isClear(c)) return; const k = rgb(c); counts.set(k, (counts.get(k) || 0) + 1); if (!first.has(k)) first.set(k, i); });
+    const lint = C.lintPixels(px, w, h), edge = [], thin = [], soft = new Map();
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!solid(x, y)) continue; const i = y * w + x, v = px[i];
+      if (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1)) edge.push(i);
+      for (const [dx, dy] of [[1, 0], [0, 1]]) { // neighbouring colours that are different but hard to tell apart
+        if (!solid(x + dx, y + dy)) continue; const u = px[i + dy * w + dx];
+        if (rgb(u) === rgb(v)) continue; const d = dE(u, v);
+        if (d < 8) { const k = [rgb(u), rgb(v)].sort().join(','); const e = soft.get(k) || { a: Math.min(rgb(u), rgb(v)), b: Math.max(rgb(u), rgb(v)), n: 0, d, first: i }; e.n++; soft.set(k, e); }
+      }
+    }
+    // the outline colour: the commonest colour on the silhouette edge; "outlined" = that dark or darker
+    const edgeCount = new Map(); for (const i of edge) edgeCount.set(rgb(px[i]), (edgeCount.get(rgb(px[i])) || 0) + 1);
+    const outline = [...edgeCount.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null, outL = outline == null ? 0 : lab(outline)[0];
+    const dark = (c) => lab(c)[0] <= outL + 12;
+    const gaps = edge.filter((i) => !dark(px[i]));
+    // loose 1px details: a light pixel with clear on both sides (left and right, or above and below). A bowstring is meant to
+    // be one; scribbles and unoutlined strands are what fall apart at 1x
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (solid(x, y) && !dark(px[y * w + x]) && ((!solid(x - 1, y) && !solid(x + 1, y)) || (!solid(x, y - 1) && !solid(x, y + 1)))) thin.push(y * w + x);
+    const orphans = [...counts.entries()].filter(([, n]) => n <= 2).map(([c, n]) => ({ c, n, at: at(first.get(c)) }));
+    const Ls = [...counts.entries()].filter(([, n]) => n >= 3).map(([c]) => lab(c)[0]);
+    const off = palette ? [...counts.keys()].filter((c) => !palette.some((p) => rgb(p) === c)) : [];
+    const bgLow = bg != null ? edge.filter((i) => dE(px[i], bg) < 15) : null;
+    return { w, h, at, opaque: [...counts.values()].reduce((a, b) => a + b, 0), colours: counts.size, lint, edge, outline, gaps, thin, orphans,
+      lMin: Ls.length ? Math.min(...Ls) : 0, lMax: Ls.length ? Math.max(...Ls) : 0, soft: [...soft.values()].sort((a, b) => b.n - a.n), off, bg, bgLow,
+      coverage: edge.length ? 1 - gaps.length / edge.length : 0 };
+  }
+
+  function scoreOf(m, fam) {
+    const clamp = (v) => Math.max(0, Math.min(10, Math.round(v * 10) / 10)), list = (xs, f = (i) => m.at(i)) => xs.slice(0, 10).map(f).join(' ') + (xs.length > 10 ? ' …' : '');
+    const out = [];
+    const nearN = m.lint.near.length, st = m.lint.stray.length;
+    out.push({ name: 'Cleanliness', score: clamp(10 - 2 * st - 2 * nearN - m.off.length), note: [st ? `${st} stray pixel${st === 1 ? '' : 's'} at ${list(m.lint.stray)}` : 'no stray pixels', nearN ? `${nearN} near-duplicate colour pair${nearN === 1 ? '' : 's'} (${m.lint.near.map((n) => hexA(n.odd) + '≈' + hexA(n.keep)).join(', ')})` : 'no near-duplicate colours', m.off.length ? `${m.off.length} colour${m.off.length === 1 ? '' : 's'} outside the palette` : null].filter(Boolean).join('; ') });
+    const many = fam && fam.colours ? Math.max(0, m.colours - fam.colours * 1.5) : 0;
+    out.push({ name: 'Colour economy', score: clamp(10 - 1.5 * m.orphans.length - many), note: `${m.colours} colours${fam ? ` (neighbours' median ${fam.colours})` : ''}` + (m.orphans.length ? `; used for only 1-2 pixels: ${m.orphans.map((o) => `${hexRgb(o.c)} (${o.n} px at ${o.at})`).join(', ')}` : '; every colour does real work') });
+    const covPct = Math.round(m.coverage * 100), famCov = fam && fam.coverage != null ? Math.round(fam.coverage * 100) : null;
+    out.push({ name: 'Outline', score: clamp(famCov != null ? 10 - Math.max(0, famCov - covPct) / 3 : m.coverage * 10), note: `${covPct}% of the silhouette edge is ${m.outline == null ? '–' : hexRgb(m.outline)} or as dark${famCov != null ? ` (neighbours ${famCov}%)` : ''}` + (m.gaps.length ? `; light edge pixels at ${list(m.gaps)}` : '') });
+    const range = m.lMax - m.lMin;
+    out.push({ name: 'Value range', score: clamp(range >= 60 ? 10 : range / 6), note: `lightness ${Math.round(m.lMin)} to ${Math.round(m.lMax)} of 100 (a span of 60+ reads well; low spans look muddy)` + (m.soft.length ? `; colours that meet but barely differ: ${m.soft.slice(0, 4).map((s) => `${hexRgb(s.a)}/${hexRgb(s.b)} ×${s.n} from ${m.at(s.first)}`).join(', ')}` : '') });
+    if (m.bg != null) { const f = m.edge.length ? m.bgLow.length / m.edge.length : 0; out.push({ name: 'Against background', score: clamp(10 - f * 40), note: `on ${C.toHex(m.bg)}: ${Math.round(f * 100)}% of the silhouette edge is hard to tell from it` + (m.bgLow.length ? ` (${list(m.bgLow)})` : '') }); }
+    out.push({ name: 'Loose 1px details', score: clamp(10 - m.thin.length / 3), note: m.thin.length ? `${m.thin.length} light pixel${m.thin.length === 1 ? '' : 's'} with clear on both sides at ${list(m.thin)} (fine for a bowstring or whisker; scribbles and unoutlined strands fall apart at 1×)` : 'none' });
+    if (fam) {
+      const dev = [];
+      if (fam.colours && Math.abs(m.colours - fam.colours) > fam.colours * 0.5) dev.push(`colour count ${m.colours} vs ${fam.colours}`);
+      if (famCov != null && Math.abs(covPct - famCov) > 15) dev.push(`outline ${covPct}% vs ${famCov}%`);
+      if (fam.outline != null && m.outline != null && dE(m.outline, fam.outline) > 10) dev.push(`outline colour ${hexRgb(m.outline)} vs ${hexRgb(fam.outline)}`);
+      if (fam.shared != null && fam.shared < 0.5) dev.push(`only ${Math.round(fam.shared * 100)}% of its colours appear in its neighbours`);
+      out.push({ name: 'Fits its neighbours', score: clamp(10 - 2.5 * dev.length), note: `against ${fam.n} sprite${fam.n === 1 ? '' : 's'} in ${fam.dir || 'the project root'}: ` + (dev.length ? dev.join('; ') : 'same outline, similar colour count and coverage') + (fam.shared != null ? `; ${Math.round(fam.shared * 100)}% of its colours are shared with them` : '') });
+    }
+    return { parts: out, overall: Math.round((out.reduce((t, p) => t + p.score, 0) / out.length) * 10) / 10 };
+  }
+
+  async function family(rel, w, h, palette, bg, colours) {
+    const dir = path.posix.dirname(rel), sibs = manifest().sprites.filter((s) => s.path !== rel && !C.isLayersFile(s.path) && path.posix.dirname(s.path) === dir && s.w <= w * 2 && s.w >= w / 2 && s.h <= h * 2 && s.h >= h / 2).slice(0, 24);
+    if (!sibs.length) return null;
+    const ms = [], seen = new Set();
+    for (const s of sibs) {
+      try {
+        const d = drafts.get(s.path), img = d ? { w: d.w, h: d.h, px: flatOf(d) } : await PF.png.decode(new Uint8Array(fs.readFileSync(path.join(root, s.path))));
+        const m = measure(img.px, img.w, img.h, { palette, bg }); ms.push(m); for (const c of img.px) if (!isClear(c)) seen.add(rgb(c));
+      } catch { /* unreadable: lint reports it on its own */ }
+    }
+    if (!ms.length) return null;
+    const outs = ms.map((m) => m.outline).filter((c) => c != null), oc = new Map(); for (const c of outs) oc.set(c, (oc.get(c) || 0) + 1);
+    return { n: ms.length, dir: dir === '.' ? '' : dir + '/', colours: median(ms.map((m) => m.colours)), coverage: median(ms.map((m) => m.coverage)),
+      outline: [...oc.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null, shared: colours.size ? [...colours].filter((c) => seen.has(c)).length / colours.size : null };
+  }
+  function backgroundFor(rel, given) {
+    if (given) { const c = C.fromHex(given); if (c == null) fail(`background ${JSON.stringify(given)} is not a colour: use "#rrggbb"`); return c; }
+    const m = manifest();
+    for (const g of Object.values(m.groups || {})) { const list = Array.isArray(g) ? g : g && g.sprites; if (Array.isArray(list) && list.includes(rel) && g.background) return C.fromHex(g.background); }
+    return m.background ? C.fromHex(m.background) : null;
+  }
+  async function critiqueOf(rel, a) {
+    const d = await open(rel), r = frameRect(d, a.frame), px = C.copyRect(flatOf(d), d.w, d.h, r), pal = projectPalette(), bg = backgroundFor(d.rel, a.background);
+    const m = measure(px, r.w, r.h, { palette: pal, bg }), cols = new Set([...px].filter((c) => !isClear(c)).map(rgb));
+    const fam = a.frame == null ? await family(d.rel, d.w, d.h, pal, bg, cols) : null;
+    return { d, m, s: scoreOf(m, fam), bg };
+  }
+
+  tool('critique', 'Score a sprite 0-10 on things an art review checks that can be measured: cleanliness (stray pixels, near-duplicate and off-palette colours), colour economy (colours used for only a pixel or two), outline coverage of the silhouette, value range (and neighbouring colours too close to tell apart), contrast against the game background (the group\'s or project\'s "background", or background), loose 1px details that fall apart at 1x, and how well it fits the other sprites in its folder. Every score says where the problem pixels are. These are signals, not taste: also look at it with preview. compare: another sprite (e.g. the original) to score side by side.', {
+    path: P.path, frame: P.frame, background: { type: 'string', description: 'Colour the sprite is seen on in the game ("#rrggbb"); default from spritewright.config.json' },
+    compare: { type: 'string', description: 'Another sprite path to score beside this one, e.g. the version before your edits' },
+  }, ['path'], async (a) => {
+    const A = await critiqueOf(a.path, a), B = a.compare ? await critiqueOf(a.compare, { background: a.background }) : null;
+    const lines = [`Critique of ${A.d.rel}${a.frame != null ? ` frame ${a.frame}` : ''} (${A.m.w}×${A.m.h}${dirty(A.d) ? ', unsaved draft' : ''})${B ? ` beside ${B.d.rel}` : ''}`,
+      'Measurements, not taste: a sprite can score well and still look wrong. Check it with preview too.', ''];
+    if (B) {
+      lines.push(`Overall ${A.s.overall}/10 (${B.d.rel}: ${B.s.overall}/10)`, '');
+      for (const p of A.s.parts) { const q = B.s.parts.find((x) => x.name === p.name); lines.push(`${p.name}: ${p.score} (${q ? q.score : '–'})`, `  this:  ${p.note}`, `  other: ${q ? q.note : '–'}`); }
+    } else {
+      lines.push(`Overall ${A.s.overall}/10`, '');
+      for (const p of A.s.parts) lines.push(`${p.name}: ${p.score}/10`, `  ${p.note}`);
+    }
+    if (A.bg == null) lines.push('', 'No background colour configured, so contrast against the game background was not checked (pass background, or set "background" in spritewright.config.json).');
+    return lines.join('\n');
+  });
+
   tool('diff', 'What the draft changed compared with the saved file: pixel count, bounding box, and the changed area before and after as grids.', { path: P.path }, ['path'], async (a) => {
     const d = await open(a.path), b = flatOf(d);
     if (d.base.w !== d.w || d.base.h !== d.h) return `${d.rel}: size changed from ${d.base.w}×${d.base.h} to ${d.w}×${d.h}.`;
