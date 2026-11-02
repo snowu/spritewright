@@ -150,6 +150,25 @@ Typing in the filter switches to a flat list of matching files. Without a `sprit
 
 `--summary <file>` appends the table to a file, such as GitHub's job summary, and `--json` prints machine-readable results. [`examples/art-check.yml`](examples/art-check.yml) is a ready-made GitHub Actions workflow: copy it into a game repository's `.github/workflows/` and every pull request that touches a PNG gets the table on its check's summary page.
 
+## Drawing with coding agents (MCP)
+
+`spritewright mcp [dir]` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio. It lets a coding agent (Claude Code, Cursor, and others) draw a project's pixel art with the editor's own tools, instead of writing one-off image scripts that blur pixels, drift off the palette or miss by one.
+
+```sh
+claude mcp add spritewright -- npx spritewright mcp     # Claude Code, from the project folder
+```
+
+Other clients take the same command: `{ "command": "npx", "args": ["spritewright", "mcp"] }`.
+
+- **Pixels as text.** `read_sprite` returns a sprite, frame, layer or region as a character grid with x/y rulers and a legend. `write_pixels` writes one back, and a `keep` character leaves pixels alone. With a project palette, each colour has a fixed key (`0`, `1`, …), so grids need no legend.
+- **The palette is enforced.** A colour outside the project palette is refused, with the nearest one named. `snap: true` snaps to it instead.
+- **Exact tools.** `draw` covers pixel, line (with brush size), rectangle, ellipse, flood fill, fill same colour, replace colour, outline, shade with hue shifting, and dither gradient, all using the editor's algorithms. `transform` flips, rotates and shifts. Every op takes an optional dither checkerboard, frame and layer.
+- **Drafts, not surprises.** Edits stay in memory with undo until `commit`, which writes losslessly (plus the `.layers.png` of a layered sprite). Commit refuses to overwrite a file that changed on disk since the agent opened it, for example after a save in the browser editor. Use `diff` (before and after grids), `preview` (an enlarged image, optionally beside the saved version) and `discard` before committing.
+- **Mistakes are refused, not clipped.** Pixels that would land outside the image or frame fail the whole edit unless `clip: true`. So do ragged grid rows, unknown characters and a missing layer on a layered sprite.
+- **Lint on every edit.** Each edit reports how many pixels changed and where, plus any stray pixels or doubled corners it introduced. `lint` lists every problem, including near-duplicate and off-palette colours.
+
+Sheet frames come from `frames` in `spritewright.config.json`. With `frame: n`, coordinates are relative to that frame and edits stay inside it.
+
 ## Animation tools
 
 For frames stored as numbered files (`walk_0.png`, `walk_1.png`…), the frame strip in the Animation panel has **+ frame** (a copy of the current frame, saved as the next number) and **◀ ▶** (move the current frame earlier or later). A lone sprite shows the same strip with just itself, so **+ frame** starts its numbering (`torch.png` → `torch_1.png`). For a **sprite sheet** (one image, frames in a grid), the Animation panel shows its frames in a strip: click one to select it on the canvas (so flip, rotate and the rest work on that frame), **◀ ▶** reorder, **+ frame** copies it right after, **✕** deletes it, and a one-row sheet grows or shrinks to match. Every frame, in a sheet or a numbered family, has a **×1–×4** badge for how long it holds; Play, GIF and the export follow it. **Sheet + JSON** downloads the animation as one sheet PNG with a JSON of its frames and timings in Aseprite's json-array format, which most engines and importers read (a numbered family is packed into a row). **GIF…** exports the animation (a frame family, a sprite sheet's frames, or a single image) as a looping GIF at the scale you choose and the fps set under Preview, to share in chat or a pull request.
@@ -248,7 +267,7 @@ Press `?` in the editor for the full list. The main ones: `B` pencil · `E` eras
 ## Tests
 
 ```sh
-node --test test/unit.test.mjs test/worker.test.mjs   # drawing core, PNG codec, scanner, server security, GitHub source, PR client (fake GitHub), init, the auth Worker
+node --test test/unit.test.mjs test/worker.test.mjs test/mcp.test.mjs   # MCP server, drawing core, PNG codec, scanner, server security, GitHub source, PR client (fake GitHub), init, the auth Worker
 node test/pack.mjs                 # npm pack, install into a throwaway project, CLI, ESM entry, TypeScript types, the installed server
 npm i -D playwright && npx playwright install chromium
 node test/e2e.mjs                  # real server + real browser: drawing, saving to disk, PR flow, hosted GitHub mode, sign-in, folder mode, mobile

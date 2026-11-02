@@ -19,7 +19,7 @@
     "worker"
   ],
   "scripts": {
-    "test": "node --test test/unit.test.mjs test/worker.test.mjs test/create-app.test.mjs test/pr-api.test.mjs test/install.test.mjs",
+    "test": "node --test test/unit.test.mjs test/worker.test.mjs test/create-app.test.mjs test/pr-api.test.mjs test/install.test.mjs test/mcp.test.mjs",
     "e2e": "node test/e2e.mjs",
     "playground": "node bin/spritewright.mjs examples/playground --open",
     "test:pack": "node test/pack.mjs"
@@ -38,6 +38,7 @@
     "./spritewright.js": "./spritewright.js",
     "./scan": "./src/scan.mjs",
     "./serve": "./src/serve.mjs",
+    "./mcp": "./src/mcp.mjs",
     "./package.json": "./package.json"
   },
   "keywords": [
