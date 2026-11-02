@@ -74,7 +74,7 @@ export function createMcp({ root = '.' } = {}) {
     const entry = manifest().sprites.find((s) => s.path === r.rel);
     const d = { ...r, w: img.w, h: img.h, layers, frames: entry?.frames || null, undo: [], hash: sha(bytes), layersHash, isNew: false,
       base: { w: img.w, h: img.h, px: flat(layers, img.w * img.h) } };
-    drafts.set(r.rel, d);
+    initKeys(d); drafts.set(r.rel, d);
     return d;
   }
   const flat = (layers, n) => layers.length === 1 ? layers[0].px.slice() : C.flattenLayers(layers, n);
@@ -112,17 +112,27 @@ export function createMcp({ root = '.' } = {}) {
     }
     return c;
   }
-  /** Keys for the colours of a grid: the project palette's keys first (stable across reads), then the sprite's other colours. */
-  function keysFor(px, palette) {
-    const byColor = new Map(), legend = { '.': 'clear' };
-    let k = 0;
-    if (palette) for (const p of palette) { if (k >= KEYS.length) break; byColor.set(p >>> 0, KEYS[k]); legend[KEYS[k++]] = C.toHex(p); }
-    for (const [c] of C.colorsOf(px)) {
-      if (c === 0 || byColor.has(c >>> 0)) continue;
-      if (k >= KEYS.length) fail(`too many colours for a character grid (more than ${KEYS.length}); read a smaller region or use preview`);
-      byColor.set(c >>> 0, KEYS[k]); legend[KEYS[k++]] = hexA(c);
-    }
-    return { byColor, legend };
+  /* Grid keys belong to a draft and never change while it is open, so a key read once means the same colour in every later
+     read, diff and write. The project palette's colours take the first keys (the same in every sprite); the sprite's other
+     colours get the next free keys, in the order they are first seen. */
+  function initKeys(d) {
+    d.keys = { byColor: new Map(), byKey: new Map() };
+    const pal = projectPalette();
+    if (pal) for (const p of pal.slice(0, KEYS.length)) addKey(d, p);
+    for (const [c] of C.colorsOf(flatOf(d))) if (c !== 0 && d.keys.byColor.size < KEYS.length) addKey(d, c);
+  }
+  function addKey(d, c) {
+    c >>>= 0; if (d.keys.byColor.has(c)) return d.keys.byColor.get(c);
+    const used = new Set(d.keys.byKey.keys()), k = [...KEYS].find((ch) => !used.has(ch));
+    if (!k) fail(`too many colours for a character grid (more than ${KEYS.length}); read a smaller region or use preview`);
+    d.keys.byColor.set(c, k); d.keys.byKey.set(k, c); return k;
+  }
+  /** The draft's keys, with any colours of px that have none yet added; legend lists only the keys px uses. */
+  function keysFor(d, px) {
+    const legend = {};
+    for (const [c] of C.colorsOf(px)) if (c !== 0) legend[addKey(d, c)] = hexA(c);
+    legend['.'] = 'clear';
+    return { byColor: d.keys.byColor, legend };
   }
   const paletteLegend = (palette) => palette ? Object.fromEntries(palette.slice(0, KEYS.length).map((p, i) => [KEYS[i], C.toHex(p)])) : null;
 
@@ -167,7 +177,7 @@ export function createMcp({ root = '.' } = {}) {
     const newStray = lintBefore && aw === d.w && ah === d.h ? l.stray.filter((i) => !lintBefore.stray.has(i)) : l.stray;
     const newDbl = lintBefore && aw === d.w && ah === d.h ? l.doubles.filter((i) => !lintBefore.doubles.has(i)) : l.doubles;
     if (newStray.length) out.push(`New stray pixels (dust or holes): ${newStray.slice(0, 12).map(at).join(' ')}${newStray.length > 12 ? ' …' : ''}`);
-    if (newDbl.length) out.push(`New doubled corners on 1px lines: ${newDbl.slice(0, 12).map(at).join(' ')}${newDbl.length > 12 ? ' …' : ''}`);
+    if (newDbl.length) out.push(`Worth a look, new possible doubled corners: ${newDbl.slice(0, 12).map(at).join(' ')}${newDbl.length > 12 ? ' …' : ''} (fine if this is shading or closes an outline; if fixing one only moves it next door, it was fine)`);
     out.push('Draft only: commit to write it to disk.');
     return out.join('\n');
   }
@@ -221,15 +231,13 @@ export function createMcp({ root = '.' } = {}) {
     const w = int(a.w, 'w', { min: 1, def: fr.w - x }), h = int(a.h, 'h', { min: 1, def: fr.h - y });
     if (x + w > fr.w || y + h > fr.h || w < 1 || h < 1) fail(`region x ${x} y ${y} w ${w} h ${h} does not fit the ${a.frame != null ? 'frame' : 'image'} (${fr.w}×${fr.h})`);
     if (w * h > MAX_GRID) fail(`${w}×${h} is too big for one grid; read a region (x, y, w, h) of at most ${MAX_GRID} pixels, or use preview`);
-    const px = C.copyRect(src, d.w, d.h, { x: fr.x + x, y: fr.y + y, w, h }), { byColor, legend } = keysFor(px, projectPalette());
-    const used = new Set(gridText(px, w, h, 0, 0, byColor, false).replace(/\n/g, ''));
-    const shown = Object.fromEntries(Object.entries(legend).filter(([k]) => used.has(k)));
+    const px = C.copyRect(src, d.w, d.h, { x: fr.x + x, y: fr.y + y, w, h }), { byColor, legend: shown } = keysFor(d, px);
     const head = [`${d.rel}  ${d.w}×${d.h}${d.frames ? `, frames ${d.frames.w}×${d.frames.h}` : ''}${a.frame != null ? `, frame ${a.frame} (at ${fr.x},${fr.y} in the sheet)` : ''}${d.layers.length > 1 ? `, layers: ${d.layers.map((l, i) => `${i} "${l.name}"${l.visible === false ? ' (hidden)' : ''}`).join(', ')}${a.layer == null ? ' (shown flattened)' : `, showing layer ${pickLayer(d, a.layer)}`}` : ''}${dirty(d) ? ', unsaved draft' : ''}`,
       `Region x ${x}-${x + w - 1}, y ${y}-${y + h - 1}${a.frame != null ? ' (frame coordinates)' : ''}`, `Legend: ${JSON.stringify(shown)}`, ''];
     return head.join('\n') + gridText(px, w, h, x, y, byColor, a.rulers !== false);
   });
 
-  tool('write_pixels', 'Write a block of pixels from a character grid, with its top-left corner at (x, y). Every row must be the same length. Characters map to colours through legend ("." means clear unless the legend says otherwise); a legend value of "keep" leaves that pixel as it is. With a project palette and no legend, the palette keys from list_sprites are used.', {
+  tool('write_pixels', 'Write a block of pixels from a character grid, with its top-left corner at (x, y). Every row must be the same length. Characters map to colours through legend ("." means clear unless the legend says otherwise); a legend value of "keep" leaves that pixel as it is. Without a legend, the keys read_sprite showed for this sprite are used (they stay the same while the sprite is open); legend entries add keys or override them.', {
     path: P.path, x: { type: 'integer' }, y: { type: 'integer' },
     rows: { type: 'array', items: { type: 'string' }, description: 'The grid, one string per row, no rulers' },
     legend: { type: 'object', additionalProperties: { type: 'string' }, description: 'Character → "#rrggbb", "#rrggbbaa", "clear" or "keep"' },
@@ -240,15 +248,15 @@ export function createMcp({ root = '.' } = {}) {
     const rows = a.rows.map((r) => [...r]), width = rows[0].length;
     const ragged = rows.findIndex((r) => r.length !== width);
     if (ragged >= 0) fail(`row ${ragged} is ${rows[ragged].length} characters wide but row 0 is ${width}; every row must be the same width (use a "keep" character for pixels to leave alone)`);
-    const legendIn = a.legend || paletteLegend(pal);
-    if (!legendIn) fail('legend is required: no project palette, so the grid characters have no default colours (e.g. legend: {"a": "#1a1c2c"})');
-    const map = new Map([['.', 0]]);
-    for (const [k, v] of Object.entries(legendIn)) {
-      if ([...k].length !== 1) fail(`legend key ${JSON.stringify(k)} must be a single character`);
-      map.set(k, v === 'keep' ? 'keep' : parseColor(v, { palette: pal, snap: a.snap, what: `legend "${k}"` }));
+    const given = a.legend || {};
+    for (const k of Object.keys(given)) if ([...k].length !== 1) fail(`legend key ${JSON.stringify(k)} must be a single character`);
+    const usedCh = [...new Set(rows.flat())], unknown = usedCh.filter((ch) => !(ch in given) && ch !== '.' && !d.keys.byKey.has(ch));
+    if (unknown.length) fail(`characters not in the legend or this sprite's keys: ${unknown.map((c) => JSON.stringify(c)).join(' ')} (read_sprite shows the keys; add others with legend, e.g. {"z": "#1a1c2c"})`);
+    const map = new Map(); // only the characters used are checked, so an unused key for an off-palette colour is no obstacle
+    for (const ch of usedCh) {
+      const v = ch in given ? given[ch] : ch === '.' ? 'clear' : hexA(d.keys.byKey.get(ch));
+      map.set(ch, v === 'keep' ? 'keep' : parseColor(v, { palette: pal, snap: a.snap, what: ch in given ? `legend "${ch}"` : `key "${ch}" (${v})` }));
     }
-    const unknown = [...new Set(rows.flat().filter((ch) => !map.has(ch)))];
-    if (unknown.length) fail(`characters not in the legend: ${unknown.map((c) => JSON.stringify(c)).join(' ')}`);
     const x0 = int(a.x, 'x', { def: 0 }), y0 = int(a.y, 'y', { def: 0 });
     return edit(d, () => {
       const cv = canvas(d, a), pts = [];
@@ -334,7 +342,8 @@ export function createMcp({ root = '.' } = {}) {
     if (w > 1024 || h > 1024) fail('sprites are at most 1024×1024');
     if (fs.existsSync(r.abs) || drafts.has(r.rel)) fail(`${r.rel} already exists; open it with read_sprite instead`);
     const px = new Uint32Array(w * h).fill(a.fill ? parseColor(a.fill, { palette: projectPalette(), snap: a.snap, what: 'fill' }) : 0);
-    drafts.set(r.rel, { ...r, w, h, layers: [{ name: 'Layer 1', visible: true, opacity: 100, px }], frames: null, undo: [], hash: null, layersHash: null, isNew: true, base: { w, h, px: new Uint32Array(w * h) } });
+    const d = { ...r, w, h, layers: [{ name: 'Layer 1', visible: true, opacity: 100, px }], frames: null, undo: [], hash: null, layersHash: null, isNew: true, base: { w, h, px: new Uint32Array(w * h) } };
+    initKeys(d); drafts.set(r.rel, d);
     return `New ${w}×${h} draft ${r.rel}. Draw on it, then commit to write it.`;
   });
 
@@ -367,8 +376,8 @@ export function createMcp({ root = '.' } = {}) {
   tool('lint', 'Check a sprite (the draft if it has edits) for the mistakes pixel-art critique points out first: stray pixels (dust or holes), doubled corners on 1px lines, near-duplicate colours, colours outside the project palette, and wrongly sized sheets.', { path: P.path }, ['path'], async (a) => {
     const d = await open(a.path), px = flatOf(d), l = C.lintPixels(px, d.w, d.h), at = (i) => `(${i % d.w},${(i / d.w) | 0})`, out = [], pal = projectPalette();
     if (l.stray.length) out.push(`Stray pixels (${l.stray.length}): ${l.stray.slice(0, 40).map(at).join(' ')}${l.stray.length > 40 ? ' …' : ''}`);
-    if (l.doubles.length) out.push(`Doubled corners (${l.doubles.length}): ${l.doubles.slice(0, 40).map(at).join(' ')}${l.doubles.length > 40 ? ' …' : ''}`);
     for (const n of l.near) out.push(`Near-duplicate colours: ${hexA(n.odd)} (${n.n} px) is almost ${hexA(n.keep)}`);
+    const hints = l.doubles.length ? `Worth a look, possible doubled corners on 1px lines (${l.doubles.length}): ${l.doubles.slice(0, 40).map(at).join(' ')}${l.doubles.length > 40 ? ' …' : ''}\nThese are often intentional: steps in a shading band, or an outline corner that closes a shape. Fix one only if it is a jaggy on a line, and check that the fix does not just move it next door.` : '';
     if (pal) {
       const set = new Set(pal.map(rgb)), off = new Map();
       px.forEach((c, i) => { if (!isClear(c) && !set.has(rgb(c))) { const e = off.get(c) || { n: 0, first: i }; e.n++; off.set(c, e); } });
@@ -376,7 +385,7 @@ export function createMcp({ root = '.' } = {}) {
     }
     if (d.frames && (d.w % d.frames.w || d.h % d.frames.h)) out.push(`${d.w}×${d.h} is not a whole number of ${d.frames.w}×${d.frames.h} frames`);
     if (!px.some((c) => !isClear(c))) out.push('Fully transparent');
-    return out.length ? `${d.rel}:\n` + out.join('\n') : `${d.rel}: no problems found.`;
+    return (out.length ? `${d.rel}:\nProblems:\n` + out.join('\n') : `${d.rel}: no problems found.`) + (hints ? '\n\n' + hints : '');
   });
 
   tool('diff', 'What the draft changed compared with the saved file: pixel count, bounding box, and the changed area before and after as grids.', { path: P.path }, ['path'], async (a) => {
@@ -387,8 +396,7 @@ export function createMcp({ root = '.' } = {}) {
     if (!n) return `${d.rel}: no changes${d.isNew ? ' (new, empty sprite)' : ''}.`;
     const box = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
     if (box.w * box.h > MAX_GRID) return `${d.rel}: ${n} pixels changed in x ${x0}-${x1}, y ${y0}-${y1} (too large to show as a grid; use preview with compare: true).`;
-    const before = C.copyRect(d.base.px, d.w, d.h, box), after = C.copyRect(b, d.w, d.h, box), both = Uint32Array.from([...before, ...after]), { byColor, legend } = keysFor(both, projectPalette());
-    const used = new Set(['.', ...[...both].filter((c) => !isClear(c)).map((c) => byColor.get(c >>> 0))]), shown = Object.fromEntries(Object.entries(legend).filter(([k]) => used.has(k)));
+    const before = C.copyRect(d.base.px, d.w, d.h, box), after = C.copyRect(b, d.w, d.h, box), { byColor, legend: shown } = keysFor(d, Uint32Array.from([...before, ...after]));
     return `${d.rel}: ${n} pixel${n === 1 ? '' : 's'} changed in x ${x0}-${x1}, y ${y0}-${y1}.\nLegend: ${JSON.stringify(shown)}\n\nBefore:\n${gridText(before, box.w, box.h, x0, y0, byColor, true)}\n\nAfter:\n${gridText(after, box.w, box.h, x0, y0, byColor, true)}`;
   });
 
@@ -421,8 +429,8 @@ export function createMcp({ root = '.' } = {}) {
     if (d.layers.length > 1) { const L = C.packLayers(d.layers, d.w, d.h), lb = await PF.png.encode(L.w, L.h, L.px, 1, L.text); write(lp, lb); d.layersHash = sha(lb); }
     const n = d.isNew ? d.w * d.h : C.countDiff(d.base.px, px);
     d.base = { w: d.w, h: d.h, px: px.slice() }; d.isNew = false; d.undo = [];
-    const l = C.lintPixels(px, d.w, d.h), warn = l.stray.length + l.doubles.length + l.near.length;
-    return `Wrote ${d.rel} (${d.w}×${d.h}${d.layers.length > 1 ? `, ${d.layers.length} layers` : ''}${n ? `, ${n} pixels changed` : ''}).${warn ? ` Lint: ${l.stray.length} stray, ${l.doubles.length} doubled corners, ${l.near.length} near-duplicate colours (run lint for where).` : ''}`;
+    const l = C.lintPixels(px, d.w, d.h), warn = l.stray.length + l.near.length;
+    return `Wrote ${d.rel} (${d.w}×${d.h}${d.layers.length > 1 ? `, ${d.layers.length} layers` : ''}${n ? `, ${n} pixels changed` : ''}).${warn ? ` Lint: ${l.stray.length} stray, ${l.near.length} near-duplicate colours (run lint for where).` : ''}${l.doubles.length ? ` ${l.doubles.length} possible doubled corner${l.doubles.length === 1 ? '' : 's'} worth a look.` : ''}`;
   });
 
   /* ---- JSON-RPC ---- */

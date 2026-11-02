@@ -82,7 +82,7 @@ test('mcp: write_pixels is exact, checks the grid and palette, and is all or not
   assert.deepEqual(disk('art/slime.png').rgba, before, 'nothing is written before commit');
   await ok('write_pixels', { path: 'art/slime.png', rows: ['0'] }); // with a palette, its keys work without a legend
   await bad('write_pixels', { path: 'art/slime.png', rows: ['00', '0'] }, /row 1 is 1 characters wide but row 0 is 2/);
-  await bad('write_pixels', { path: 'art/slime.png', rows: ['z'] }, /not in the legend: "z"/);
+  await bad('write_pixels', { path: 'art/slime.png', rows: ['z'] }, /not in the legend or this sprite's keys: "z"/);
   await bad('write_pixels', { path: 'art/slime.png', rows: ['a'], legend: { a: '#ff00ff' } }, /not in the project palette \(nearest: #c8434b\)/);
   const snap = await ok('write_pixels', { path: 'art/slime.png', rows: ['a'], legend: { a: '#ff00ff' }, snap: true }); assert.match(snap.text, /Changed 1 pixel/);
   const d = mcp.drafts.get('art/slime.png'), px = d.layers[0].px.slice();
@@ -186,4 +186,31 @@ test('mcp: the CLI speaks JSON-RPC over stdio, one message per line', async () =
   await got; child.kill();
   assert.equal(lines[0].id, 1); assert.equal(lines[1].id, 2); assert.match(lines[1].result.content[0].text, /\.11\./);
   assert.equal(lines[2].error.code, -32700);
+});
+
+test('mcp: without a palette, grid keys stay the same for a sprite across reads, diffs and writes', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-mcp-')), m = createMcp({ root }); let id = 0;
+  fs.writeFileSync(path.join(root, 'hero.png'), fromRows(['.gg.', 'gGGg', 'gkkg', '.gg.'], PAL).png);
+  const call = async (name, args) => { const r = (await m.handle({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } })).result; assert.ok(!r.isError, r.content[0].text); return r.content[0].text; };
+  const legend = (t) => JSON.parse(/Legend: (\{.*\})/.exec(t)[1]);
+  const first = legend(await call('read_sprite', { path: 'hero.png' }));
+  const keyOfHex = (lg, h) => Object.keys(lg).find((k) => lg[k] === h);
+  const gKey = keyOfHex(first, hex(PAL.g)), GKey = keyOfHex(first, hex(PAL.G));
+  // make the light green the most common colour: a frequency-ordered legend would now swap keys
+  await call('write_pixels', { path: 'hero.png', rows: [GKey + GKey + GKey + GKey], legend: {} });
+  await call('write_pixels', { path: 'hero.png', y: 3, rows: ['r'], legend: { r: hex(PAL.r) } });
+  const again = legend(await call('read_sprite', { path: 'hero.png' }));
+  assert.equal(again[gKey], hex(PAL.g)); assert.equal(again[GKey], hex(PAL.G), 'keys do not move when colour counts change');
+  const rKey = keyOfHex(again, hex(PAL.r)); assert.ok(rKey && ![gKey, GKey].includes(rKey), 'a new colour gets a new key');
+  const df = await call('diff', { path: 'hero.png' }), dl = legend(df);
+  assert.equal(dl[gKey], hex(PAL.g)); assert.equal(dl[GKey], hex(PAL.G)); assert.equal(dl[rKey], hex(PAL.r), 'diff uses the same keys');
+  await call('write_pixels', { path: 'hero.png', x: 1, y: 1, rows: [rKey + gKey] }); // no legend: the sprite's own keys
+  assert.match(await call('read_sprite', { path: 'hero.png', x: 1, y: 1, w: 2, h: 1 }), new RegExp(' 1 ' + rKey + gKey + '$', 'm'));
+});
+
+test('mcp: possible doubled corners are hints, not problems', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-mcp-')), m = createMcp({ root });
+  fs.writeFileSync(path.join(root, 'stair.png'), fromRows(['k....', 'kk...', '.kk..', '..kk.', '...k.'], PAL).png);
+  const r = (await m.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lint', arguments: { path: 'stair.png' } } })).result.content[0].text;
+  assert.match(r, /no problems found/); assert.match(r, /Worth a look, possible doubled corners/); assert.match(r, /often intentional/);
 });

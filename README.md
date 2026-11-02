@@ -160,12 +160,12 @@ claude mcp add spritewright -- npx spritewright mcp     # Claude Code, from the 
 
 Other clients take the same command: `{ "command": "npx", "args": ["spritewright", "mcp"] }`.
 
-- **Pixels as text.** `read_sprite` returns a sprite, frame, layer or region as a character grid with x/y rulers and a legend. `write_pixels` writes one back, and a `keep` character leaves pixels alone. With a project palette, each colour has a fixed key (`0`, `1`, …), so grids need no legend.
+- **Pixels as text.** `read_sprite` returns a sprite, frame, layer or region as a character grid with x/y rulers and a legend. `write_pixels` writes one back, and a `keep` character leaves pixels alone. A sprite's keys stay the same while it is open, so a grid can be written back without a legend. With a project palette, the palette colours have the same keys (`0`, `1`, …) in every sprite.
 - **The palette is enforced.** A colour outside the project palette is refused, with the nearest one named. `snap: true` snaps to it instead.
 - **Exact tools.** `draw` covers pixel, line (with brush size), rectangle, ellipse, flood fill, fill same colour, replace colour, outline, shade with hue shifting, and dither gradient, all using the editor's algorithms. `transform` flips, rotates and shifts. Every op takes an optional dither checkerboard, frame and layer.
 - **Drafts, not surprises.** Edits stay in memory with undo until `commit`, which writes losslessly (plus the `.layers.png` of a layered sprite). Commit refuses to overwrite a file that changed on disk since the agent opened it, for example after a save in the browser editor. Use `diff` (before and after grids), `preview` (an enlarged image, optionally beside the saved version) and `discard` before committing.
 - **Mistakes are refused, not clipped.** Pixels that would land outside the image or frame fail the whole edit unless `clip: true`. So do ragged grid rows, unknown characters and a missing layer on a layered sprite.
-- **Lint on every edit.** Each edit reports how many pixels changed and where, plus any stray pixels or doubled corners it introduced. `lint` lists every problem, including near-duplicate and off-palette colours.
+- **Lint on every edit.** Each edit reports how many pixels changed and where, plus any stray pixels it introduced, and any possible doubled corners as hints to check. `lint` lists every problem, including near-duplicate and off-palette colours. Doubled corners are listed separately as worth a look, since shading bands and outline corners often trip that check on purpose.
 
 Sheet frames come from `frames` in `spritewright.config.json`. With `frame: n`, coordinates are relative to that frame and edits stay inside it.
 
