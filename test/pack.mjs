@@ -10,7 +10,7 @@ const run = (cmd, args, cwd) => spawnSync(cmd, args, { cwd, encoding: 'utf8' });
 
 const pack = run('npm', ['pack', '--json', '--pack-destination', os.tmpdir()], here); ok(pack.status === 0, 'npm pack works');
 const parsed = JSON.parse(pack.stdout), info = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0], files = info.files.map((f) => f.path);
-for (const f of ['spritewright.js', 'index.mjs', 'index.d.ts', 'index.html', 'bin/spritewright.mjs', 'src/scan.mjs', 'src/serve.mjs', 'README.md', 'LICENSE', 'package.json']) ok(files.includes(f), 'tarball contains ' + f);
+for (const f of ['spritewright.js', 'index.mjs', 'index.d.ts', 'index.html', 'bin/spritewright.mjs', 'src/scan.mjs', 'src/serve.mjs', 'src/mcp.mjs', 'README.md', 'LICENSE', 'package.json']) ok(files.includes(f), 'tarball contains ' + f);
 ok(!files.some((f) => f.startsWith('test/') || f.startsWith('.github/')), 'tests and CI files are not shipped');
 
 const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'pf-consumer-')); fs.mkdirSync(path.join(proj, 'art'));

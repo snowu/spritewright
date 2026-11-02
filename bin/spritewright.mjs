@@ -3,6 +3,7 @@
 // spritewright serve [dir] [--port 5173] [--open] edit it in the browser (the default command)
 // spritewright init  [dir] [--force]               write a starter spritewright.config.json from what a scan finds
 // spritewright check [dir] [--since <git ref>] [--summary <file>] [--json] [--strict]   art check for pull requests
+// spritewright mcp   [dir]                          an MCP server on stdio, so coding agents can draw precisely
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -10,7 +11,7 @@ import { scan, suggestConfig } from '../src/scan.mjs';
 import { createServer } from '../src/serve.mjs';
 
 const args = process.argv.slice(2);
-const cmd = ['scan', 'serve', 'init', 'check'].includes(args[0]) ? args.shift() : 'serve';
+const cmd = ['scan', 'serve', 'init', 'check', 'mcp'].includes(args[0]) ? args.shift() : 'serve';
 const flag = (n) => { const i = args.indexOf(n); if (i < 0) return null; const [, v] = args.splice(i, 2); return v ?? null; };
 const has = (n) => { const i = args.indexOf(n); if (i < 0) return false; args.splice(i, 1); return true; };
 
@@ -24,6 +25,8 @@ if (has('--help') || has('-h')) {
                                          check sprites (only those changed since the ref); Markdown to the
                                          summary file (e.g. $GITHUB_STEP_SUMMARY) or stdout; exit 1 on errors
                                          (and on warnings with --strict)
+  spritewright mcp [dir]                 an MCP server on stdio for coding agents (pixel grids, palette-checked
+                                         drawing, drafts with undo, lint); e.g. claude mcp add spritewright -- npx spritewright mcp
 
 Put spritewright.config.json in the project to choose folders, ignore patterns, a palette (.hex) and animation frame sizes. See README.md.`);
   process.exit(0);
@@ -32,7 +35,10 @@ const out = flag('-o'), port = +(flag('--port') || 5173), open = has('--open'), 
 const dir = args[0] || '.';
 if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) { console.error(`Not a folder: ${dir}`); process.exit(1); }
 
-if (cmd === 'init') {
+if (cmd === 'mcp') {
+  const { runStdio } = await import('../src/mcp.mjs');
+  runStdio({ root: dir });
+} else if (cmd === 'init') {
   const file = path.join(dir, 'spritewright.config.json');
   if (fs.existsSync(file) && !force) { console.error(`${file} already exists (use --force to overwrite).`); process.exit(1); }
   const before = scan(dir, { dirs: [] }), { config, kept, skipped } = suggestConfig(before);
